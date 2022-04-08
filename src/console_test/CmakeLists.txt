@@ -1,0 +1,9 @@
+set(SRC_SET "console_test.cpp")
+set(PRJ_TARGET "console_test")
+if(OS_WINDOWS)
+  add_compile_definitions(OS_WIN)
+  set(SRC_SET ${SRC_SET})
+endif()
+
+message(STATUS "${PRJ_TARGET} sources: ${SRC_SET}")
+add_executable(${PRJ_TARGET} "${SRC_SET}")

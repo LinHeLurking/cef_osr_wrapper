@@ -1,0 +1,97 @@
+#
+# Global setup.
+#
+
+# For VS2019 and Xcode 12+ support.
+cmake_minimum_required(VERSION 3.19)
+
+# Only generate Debug and Release configuration types.
+set(CMAKE_CONFIGURATION_TYPES Debug Release)
+
+# Project name.
+# TODO: Change this line to match your project name when you copy this file.
+project(cef_osr_wrapper)
+
+# Use folders in the resulting project files.
+set_property(GLOBAL PROPERTY OS_FOLDERS ON)
+
+# Change CEF_ROOT if needed.
+set(CEF_ROOT "D:/workspace/minecraft_mod_dev/InformativeMC/cef-wrapper-test/cef_binary")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CEF_ROOT}/cmake")
+
+
+#
+# Load the CEF configuration.
+#
+
+# Execute FindCEF.cmake which must exist in CMAKE_MODULE_PATH.
+find_package(CEF REQUIRED)
+
+
+#
+# Define CEF-based targets.
+#
+
+# Include the libcef_dll_wrapper target.
+# Comes from the libcef_dll/CMakeLists.txt file in the binary distribution
+# directory.
+add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
+
+# Display configuration settings.
+PRINT_CEF_CONFIG()
+
+#
+# Shared configuration.
+#
+
+if(OS_MAC)
+  set(CEF_HELPER_TARGET "cef_osr_wrapper_Helper")
+  set(CEF_HELPER_OUTPUT_NAME "cef_osr_wrapper Helper")
+else()
+  # Logical target used to link the libcef library.
+  ADD_LOGICAL_TARGET("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
+endif()
+
+SET_CEF_TARGET_OUT_DIR()
+
+if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+  add_compile_definitions(DEBUG)
+endif()
+
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/src/console_test")
+
+if(OS_WINDOWS)
+  add_compile_definitions(OS_WIN)
+  set(CEF_TARGET "cef_osr_browser")
+  set(EXE_SROUCE_SET "src/browser/client.h" "src/browser/client.cpp" 
+  "src/browser/app.h" "src/browser/app.cpp" "src/browser/exe_win.cpp"
+  "src/portable_socket/socket.h" "src/portable_socket/win/sock_win.cpp" 
+  "src/frame_bridge/sender.h" "src/frame_bridge/sender.cpp")
+  message(STATUS "Source set: ${EXE_SROUCE_SET}")
+
+  # Fix sub-folder cmake error
+  set(CEF_BINARY_DIR          "${CEF_ROOT}/${CMAKE_BUILD_TYPE}")
+
+  # Executable target.
+  add_executable(${CEF_TARGET} WIN32 ${EXE_SROUCE_SET})
+  add_dependencies(${CEF_TARGET} libcef_dll_wrapper)
+  message(STATUS "Adding includes:              ${CEF_ROOT}/include")
+  target_include_directories(${CEF_TARGET} PUBLIC "${CEF_ROOT}/include")
+  SET_EXECUTABLE_TARGET_PROPERTIES(${CEF_TARGET})
+  target_link_libraries(${CEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+
+  if(USE_SANDBOX)
+    # Logical target used to link the cef_sandbox library.
+    ADD_LOGICAL_TARGET("cef_sandbox_lib" "${CEF_SANDBOX_LIB_DEBUG}" "${CEF_SANDBOX_LIB_RELEASE}")
+    target_link_libraries(${CEF_TARGET} cef_sandbox_lib ${CEF_SANDBOX_STANDARD_LIBS})
+  endif()
+
+  # Add the custom manifest files to the executable.
+  ADD_WINDOWS_MANIFEST("${CMAKE_CURRENT_SOURCE_DIR}/src/browser" "${CEF_TARGET}" "exe")
+
+  # Copy binary and resource files to the target output directory.
+  COPY_FILES("${CEF_TARGET}" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
+  COPY_FILES("${CEF_TARGET}" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
+
+  unset(CEF_TARGET)
+endif()
