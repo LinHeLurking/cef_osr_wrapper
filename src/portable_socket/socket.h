@@ -3,6 +3,7 @@
 #if defined(OS_WIN)
 #include <WinSock2.h>
 #include <Windows.h>
+#include <WS2tcpip.h>
 #endif
 
 #if defined(OS_WIN)
@@ -25,6 +26,11 @@ class Socket {
   Socket Accept(sock_addr_t *addr, socklen_t *addr_len);
   int Send(const char *buf, int len, int flags);
   int Recv(char *buf, int len, int flags);
+  bool IsValid();
+  int Close();
+
+  static int Clenup();
+  static Socket InvalidSocket();
 
  private:
   raw_socket_t socket_;

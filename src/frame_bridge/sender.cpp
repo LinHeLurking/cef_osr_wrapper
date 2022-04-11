@@ -11,16 +11,14 @@ using std::lock_guard;
 using std::mutex;
 using std::string;
 using std::thread;
+using namespace cef::logging;
 
 namespace FrameBridge {
 namespace {
 Sender* g_Instance = nullptr;
 mutex g_mutex;
 
-const string osr_socket_name = "osr.socket";
-const int osr_socket_name_len = (int)osr_socket_name.size();
-
-thread* bg_socket_handler_thread;
+thread* bg_socket_handler_thread = nullptr;
 
 constexpr int recv_buf_len = 10000;
 char recv_buf[recv_buf_len];
@@ -44,16 +42,27 @@ inline int PlatformInit() {
 void Sender::BackgoundSocketHandler() {
   using Status = Sender::Status;
   auto task = [this]() {
+    LogAtLevel(LOG_INFO, "Sender background handler started.");
     while (true) {
       auto status = this->GetStatus();
       switch (status) {
         case Status::Uninitialized:
         case Status::Initializing:
-          std::this_thread::sleep_for(std::chrono::milliseconds(200));
-          break;         
+          LogAtLevel(LOG_INFO,
+                     "Sender initialization not finished. Waiting for 500ms.");
+          std::this_thread::sleep_for(std::chrono::milliseconds(500));
+          break;
         case Status::Idle:
-          this->client_socket_ = this->main_socket_.Accept(nullptr, nullptr);
-          this->SetStatus(Status::Communicating);
+          LogAtLevel(LOG_INFO, "Waiting for incoming connections...");
+          // Accept a client socket
+          this->client_socket_ = this->listen_socket_.Accept(nullptr, nullptr);
+          if (this->client_socket_.IsValid()) {
+            this->SetStatus(Status::Communicating);
+          } else {
+            LogAtLevel(LOG_ERROR, "Accept failed.");
+            Socket::Clenup();
+            return;
+          }
         case Status::Communicating:
           while (true) {
             // Currently no Java -> C++ socket data.
@@ -73,30 +82,89 @@ void Sender::BackgoundSocketHandler() {
 
 Sender* Sender::GetInstance() {
   // Initialize global singleton instance
-  lock_guard<mutex> lock(g_mutex);
+  const lock_guard<mutex> lock(g_mutex);
   if (g_Instance == nullptr) {
+    LogAtLevel(LOG_INFO, "First time initializing frame bridge sender...");
     PlatformInit();
     g_Instance = new Sender();
+    LogAtLevel(LOG_INFO, "Starting sender background handler...");
+    g_Instance->BackgoundSocketHandler();
+    LogAtLevel(LOG_INFO, "Initializing frame bridge sender socket...");
 
     // Initialize socket
     g_Instance->SetStatus(Status::Initializing);
-    sock_addr_t sock_addr;
-    sock_addr.sa_family = AF_UNIX;
-    strncpy(sock_addr.sa_data, osr_socket_name.c_str(), osr_socket_name_len);
-    g_Instance->main_socket_.Bind(&sock_addr, osr_socket_name_len);
-    g_Instance->main_socket_.Listen(5);
-    g_Instance->SetStatus(Status::Idle);
 
-    g_Instance->BackgoundSocketHandler();
+    int i_result;
+    struct addrinfo* result = NULL;
+    struct addrinfo hints;
+
+    // Resolve the server address and port
+    LogAtLevel(LOG_INFO, "Resolving server addr...");
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = AI_PASSIVE;
+
+    i_result = getaddrinfo(nullptr, "27015", &hints, &result);
+    if (i_result != 0) {
+      LogAtLevel(LOG_ERROR,
+                 "getaddrinfo failed with error: " + std::to_string(i_result));
+      Socket::Clenup();
+      return g_Instance;
+    }
+
+    // Create socket or connecting to server
+    LogAtLevel(LOG_INFO, "Creating socket...");
+    g_Instance->listen_socket_ =
+        Socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (!(g_Instance->listen_socket_.IsValid())) {
+      LogAtLevel(LOG_ERROR, "Socket creation failed.");
+      freeaddrinfo(result);
+      Socket::Clenup();
+      return g_Instance;
+    }
+
+    // Setup the TCP listening socket
+    LogAtLevel(LOG_INFO, "Binding socket...");
+    i_result = g_Instance->listen_socket_.Bind(result->ai_addr,
+                                               (int)result->ai_addrlen);
+    if (i_result == SOCKET_ERROR) {
+      LogAtLevel(LOG_ERROR, "Bind failed.");
+      freeaddrinfo(result);
+      Socket::Clenup();
+      return g_Instance;
+    }
+    freeaddrinfo(result);
+
+    // Set listening
+    LogAtLevel(LOG_INFO, "Setting listenning...");
+    i_result = g_Instance->listen_socket_.Listen(SOMAXCONN);
+    if (i_result == SOCKET_ERROR) {
+      LogAtLevel(LOG_ERROR, "Listen error.");
+      g_Instance->listen_socket_.Close();
+      Socket::Clenup();
+      return g_Instance;
+    }
+
+    LogAtLevel(LOG_INFO,
+               "Socket initialization finished. Now sender is in idle mode.");
+    g_Instance->SetStatus(Status::Idle);
   }
   return g_Instance;
 }
 
 // Client Socket
-Sender::Sender()
-    : main_socket_(Socket(AF_UNIX, SOCK_STREAM, 0)),
-      client_socket_(Socket(AF_UNIX, SOCK_STREAM, 0)) {}
-Sender::~Sender() {}
+Sender::Sender() {}
+Sender::~Sender() {
+  if (listen_socket_.IsValid()) {
+    listen_socket_.Close();
+  }
+  if (client_socket_.IsValid()) {
+    client_socket_.Clenup();
+  }
+  Socket::Clenup();
+}
 
 Sender::Status Sender::GetStatus() {
   const lock_guard<mutex> lock(mutex_);

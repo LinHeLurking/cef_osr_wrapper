@@ -70,6 +70,9 @@ void Client::OnPaint(CefRefPtr<CefBrowser> browser, PaintElementType type,
                      const RectList& dirtyRects, const void* buffer, int width,
                      int height) {
   auto sender = FrameBridge::Sender::GetInstance();
+  if (sender == nullptr) {
+    return;
+  }
   // Frames during sender initialization stage will be dropped,
   // without being sent out.
   sender->SendFrame(type, dirtyRects, buffer, width, height);

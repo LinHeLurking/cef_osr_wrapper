@@ -31,8 +31,8 @@ class Sender {
  private:
   Sender();
   ~Sender();
-  Socket main_socket_;
-  Socket client_socket_;
+  Socket listen_socket_ = Socket::InvalidSocket();
+  Socket client_socket_ = Socket::InvalidSocket();
   Status status_ = Status::Uninitialized;
   std::mutex mutex_;
 };

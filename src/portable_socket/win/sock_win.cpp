@@ -21,9 +21,7 @@ int Socket::Connect(const sock_addr_t* addr, socklen_t addr_len) {
   return connect(socket_, addr, addr_len);
 }
 
-int Socket::Listen(socklen_t backlog) {
-  return listen(socket_, backlog);
-}
+int Socket::Listen(socklen_t backlog) { return listen(socket_, backlog); }
 
 Socket Socket::Accept(sock_addr_t* addr, socklen_t* addr_len) {
   raw_socket_t skt = accept(socket_, addr, addr_len);
@@ -37,3 +35,11 @@ int Socket::Send(const char* buf, int len, int flags) {
 int Socket::Recv(char* buf, int len, int flags) {
   return recv(socket_, buf, len, flags);
 }
+
+bool Socket::IsValid() { return this->socket_ != INVALID_SOCKET; }
+
+int Socket::Close() { return closesocket(this->socket_); }
+
+int Socket::Clenup() { return WSACleanup(); }
+
+Socket Socket::InvalidSocket() { return Socket(INVALID_SOCKET); }
